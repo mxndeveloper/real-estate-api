@@ -1,0 +1,33 @@
+# Dependency directories
+node_modules/
+
+# Environment variables
+.env
+.env.*
+.env.local
+
+# Mac system files
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Uploads directory (if you handle file uploads)
+uploads/
+
+# IDE specific files
+.idea/
+.vscode/
+
+# Debug files
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory
+coverage/
+
+# Build directories
+dist/
+build/

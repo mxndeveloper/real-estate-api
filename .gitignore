@@ -1,0 +1,23 @@
+# Create root .gitignore
+echo "# Global ignores" > .gitignore
+echo ".DS_Store" >> .gitignore
+echo "Thumbs.db" >> .gitignore
+echo "*.log" >> .gitignore
+echo "*.tmp" >> .gitignore
+
+# Backend .gitignore
+echo "# Backend ignores" > backend/.gitignore
+echo "node_modules/" >> backend/.gitignore
+echo ".env" >> backend/.gitignore
+echo ".env.*" >> backend/.gitignore
+echo "uploads/" >> backend/.gitignore
+echo "*.log" >> backend/.gitignore
+
+# Frontend .gitignore (if you have frontend folder)
+echo "# Frontend ignores" > frontend/.gitignore
+echo "node_modules/" >> frontend/.gitignore
+echo ".env" >> frontend/.gitignore
+echo ".env.*" >> frontend/.gitignore
+echo ".next/" >> frontend/.gitignore
+echo "out/" >> frontend/.gitignore
+echo "dist/" >> frontend/.gitignore

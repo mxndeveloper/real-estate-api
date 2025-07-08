@@ -5,9 +5,13 @@ import {
   uploadMultipleImages,
   removeMultipleImages,
   removeSingleImage,
+  createAd,
+  read
 } from "../controllers/ad.js";
 import { uploadSingle, uploadMultiple } from "../middlewares/upload.js";
 import { requireSignin } from "../middlewares/auth.js";
+import ad from "../models/ad.js";
+
 
 const router = express.Router();
 
@@ -28,4 +32,8 @@ router.post(
   uploadMultipleImages
 );
 
+router.post("/create-ad", requireSignin, createAd);
+router.get("/ad/:slug", read);
+
 export default router;
+

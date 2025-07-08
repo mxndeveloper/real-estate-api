@@ -1,7 +1,13 @@
 // server/controllers/ad.js
+import { nanoid } from "nanoid"; // Add this import at the top
 import { uploadToS3, deleteFromS3 } from "../utils/s3-upload.js";
 import sharp from "sharp";
 import AppError from "../utils/app-error.js";
+import { geocodeAddress } from "../helpers/google.js";
+import Ad from "../models/ad.js";
+import User from "../models/user.js";
+import user from "../models/user.js";
+import slugify from "slugify";
 
 // Image optimization profiles
 const OPTIMIZATION_PROFILES = {
@@ -315,8 +321,8 @@ export const removeMultipleImages = async (req, res, next) => {
         message: "All images were successfully deleted",
         data: {
           deletedCount: successfulDeletes.length,
-          deletedAt: new Date().toISOString()
-        }
+          deletedAt: new Date().toISOString(),
+        },
       });
     }
 
@@ -328,8 +334,8 @@ export const removeMultipleImages = async (req, res, next) => {
           deletedCount: successfulDeletes.length,
           failedCount: failedDeletes.length,
           failedDeletes,
-          deletedAt: new Date().toISOString()
-        }
+          deletedAt: new Date().toISOString(),
+        },
       });
     }
 
@@ -342,5 +348,179 @@ export const removeMultipleImages = async (req, res, next) => {
         ? err
         : new AppError(`Failed to delete images: ${err.message}`, 500)
     );
+  }
+};
+
+export const createAd = async (req, res) => {
+  try {
+    const {
+      photos = [], // Default empty array if not provided
+      description,
+      address,
+      propertyType,
+      price,
+      landsize,
+      landsizeType,
+      action,
+      bedrooms,
+      bathrooms,
+      carpark,
+      features,
+      inspectionTime,
+    } = req.body;
+
+    // Validate required fields
+    const validateRequired = (field, name) => {
+      if (!field || (typeof field === "string" && !field.trim())) {
+        res.status(400).json({ error: `${name} is required` });
+        return false;
+      }
+      return true;
+    };
+
+    // Check all required fields
+    if (!validateRequired(photos?.length, "Photos")) return;
+    if (!validateRequired(description, "Description")) return;
+    if (!validateRequired(address, "Address")) return;
+    if (!validateRequired(propertyType, "Property Type")) return;
+    if (!validateRequired(price, "Price")) return;
+    if (!validateRequired(action, "Action")) return;
+
+    // Additional validation for Land type
+    if (propertyType === "Land") {
+      if (!validateRequired(landsize, "Landsize")) return;
+      if (!validateRequired(landsizeType, "Landsize Type")) return;
+    }
+
+    // Geocode the address
+    const geocodeResult = await geocodeAddress(address.trim());
+
+    // Create slug first
+    const slug = slugify(
+      `${propertyType}-for-${action}-address-${address}-price-${price}-${nanoid(
+        6
+      )}`,
+      {
+        lower: true,
+        remove: /[*+~.()'"!:@]/g, // Remove special characters
+      }
+    );
+
+    // Create the ad
+    const ad = await new Ad({
+      ...req.body,
+      slug, // Use the slug we just created
+      photos: photos.map((photo) =>
+        typeof photo === "string" ? photo : photo.url
+      ), // Handle both strings and objects
+      description,
+      address,
+      propertytype: propertyType, // Match schema field name
+      price,
+      landsize,
+      landsizetype: landsizeType,
+      bedrooms,
+      bathrooms,
+      carpark,
+      features,
+      inspectionTime,
+      postedBy: req.user._id, // Use from auth middleware
+      location: geocodeResult.location,
+      googleMap: geocodeResult.googleMap,
+      action,
+      status: "In market",
+    }).save();
+
+    // Update user role (fixed typo in role name)
+    await User.findByIdAndUpdate(
+      req.user._id,
+      { $addToSet: { role: "Seller" } },
+      { new: true }
+    );
+    user.password = undefined;
+
+    // Successful response
+    res.json({
+      success: true,
+      ad: {
+        _id: ad._id,
+        photos: ad.photos,
+        address: ad.address,
+        price: ad.price,
+        propertytype: ad.propertytype,
+        location: ad.location,
+        slug: ad.slug,
+        // Include other fields you want to return
+      },
+    });
+  } catch (err) {
+    console.error("Create Ad Error:", err);
+
+    // Handle specific error cases
+    if (err.message.includes("No results found")) {
+      return res.status(404).json({ error: "Address not found" });
+    }
+    if (err.message.includes("Google API Error")) {
+      return res.status(502).json({ error: "Geocoding service unavailable" });
+    }
+    if (err.code === 11000) {
+      // MongoDB duplicate key error
+      return res.status(400).json({ error: "This property already exists" });
+    }
+
+    // Generic error response
+    res.status(500).json({
+      error: "Failed to create ad",
+      details: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+};
+
+export const read = async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const ad = await Ad.findOne({ slug })
+      .select("-googleMap")
+      .populate("postedBy", "name username email phone company photo logo");
+
+    if (!ad) {
+      return res.status(404).json({ error: "Ad not found" });
+    }
+
+    // First get basic related ads without population
+    let related = await Ad.aggregate([
+      {
+        $geoNear: {
+          near: ad.location,
+          distanceField: "distance",
+          maxDistance: 50000, // 50km in meters
+          spherical: true,
+          query: {
+            _id: { $ne: ad._id },
+            // Remove these strict filters to get more results
+            action: ad.action,
+            propertytype: ad.propertytype,
+            published: true,
+          },
+        },
+      },
+      { $limit: 3 },
+      { $project: { googleMap: 0 } },
+    ]);
+
+    // Then populate the postedBy field
+    related = await Ad.populate(related, {
+      path: "postedBy",
+      select: "name username email phone company photo logo",
+    });
+
+    res.json({
+      ad,
+      related: related || [], // Ensure we always return an array
+    });
+  } catch (err) {
+    console.error("Error in read controller:", err);
+    res.status(500).json({ error: "Failed to fetch ad details" });
   }
 };

@@ -6,7 +6,8 @@ import {
   removeMultipleImages,
   removeSingleImage,
   createAd,
-  read
+  read,
+  adsForSell
 } from "../controllers/ad.js";
 import { uploadSingle, uploadMultiple } from "../middlewares/upload.js";
 import { requireSignin } from "../middlewares/auth.js";
@@ -34,6 +35,7 @@ router.post(
 
 router.post("/create-ad", requireSignin, createAd);
 router.get("/ad/:slug", read);
+router.get("/ads-for-sell/:page", adsForSell);  // 1, 2, 3
 
 export default router;
 

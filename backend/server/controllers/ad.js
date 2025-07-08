@@ -524,3 +524,40 @@ export const read = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch ad details" });
   }
 };
+
+export const adsForSell = async (req, res) => {
+  try {
+    // Correct way to get the page number from URL params
+    const page = parseInt(req.params.pageNumber) || 1; // Assuming your route is '/ads-for-sell/:pageNumber'
+    
+    // Alternatively, if you're using query params (?page=1):
+    // const page = parseInt(req.query.page) || 1;
+    
+    if (isNaN(page) || page < 1) {
+      return res.status(400).json({ error: "Invalid page number" });
+    }
+
+    const pageSize = 2;
+    const skip = (page - 1) * pageSize;
+    const totalAds = await Ad.countDocuments({ action: "Sell" });
+
+    const ads = await Ad.find({ action: "Sell" })
+      .populate("postedBy", "name username email phone company photo logo")
+      .select("-googleMap")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize);
+
+    res.json({
+      ads,
+      currentPage: page,
+      totalPages: Math.ceil(totalAds / pageSize),
+      totalAds
+    });
+  } catch (err) {
+    console.error("Error in adsForSell:", err); // Better error logging
+    res.status(500).json({
+      error: "Failed to fetch ads. Please try again."
+    });
+  }
+};

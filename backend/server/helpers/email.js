@@ -82,3 +82,90 @@ export const sendPasswordResetEmail = async (email, code) => {
     throw error;
   }
 };
+
+export const sendContactEmailToAgent = async ({
+  ad,
+  user,
+  message,
+  clientUrl,
+}) => {
+  // Validate required parameters
+  if (!ad || !user || !message) {
+    throw new Error(
+      `Missing required parameters: ${!ad ? "ad " : ""}${!user ? "user " : ""}${
+        !message ? "message" : ""
+      }`
+    );
+  }
+
+  // Verify required email fields
+  if (!ad.postedBy?.email || !user.email) {
+    throw new Error(
+      `Missing email addresses: ${!ad.postedBy?.email ? "Agent email " : ""}${
+        !user.email ? "User email" : ""
+      }`
+    );
+  }
+
+  // Prepare email content with fallbacks
+  const emailHtml = `
+    <html>
+      <p>Good day! ${ad.postedBy.name || "Agent"}</p>
+      <p>You have received a new enquiry from ${user.name || "a user"} 
+      from <a href="${clientUrl}">${clientUrl}</a></p>
+
+      <p><strong>Details:</strong></p>
+      <ul>
+        <li>Name: ${user.name || "Not provided"}</li>
+        <li>Email: <a href="mailto:${user.email}">${user.email}</a></li>
+        <li>Phone: ${user.phone || "Not provided"}</li>
+        <li>Enquired ad: 
+          <a href="${clientUrl}/ad/${ad.slug}">
+            ${ad.propertyType || "Property"} for ${ad.action || "Rent/Sell"} - 
+            ${ad.address || ""} (${ad.price || ""})
+          </a>
+        </li>
+      </ul>
+
+      <p><strong>Message:</strong></p>
+      <p>${message}</p>
+      
+      <p>Thank you!</p>
+      <i>Team ${process.env.APP_NAME || "Real Estate"}</i>
+    </html>
+  `;
+
+  const params = {
+    Source: process.env.EMAIL_FROM,
+    ReplyToAddresses: [user.email],
+    Destination: {
+      ToAddresses: [ad.postedBy.email],
+    },
+    Message: {
+      Body: {
+        Html: {
+          Charset: "UTF-8",
+          Data: emailHtml,
+        },
+      },
+      Subject: {
+        Charset: "UTF-8",
+        Data: `New enquiry about your ${ad.propertyType || "property"} listing`,
+      },
+    },
+  };
+
+  try {
+    const command = new SendEmailCommand(params);
+    const data = await client.send(command);
+    console.log("Email sent successfully:", data.MessageId);
+    return data;
+  } catch (err) {
+    console.error("AWS SES Error:", {
+      code: err.code,
+      message: err.message,
+      stack: err.stack,
+    });
+    throw new Error(`Failed to send email: ${err.message}`);
+  }
+};

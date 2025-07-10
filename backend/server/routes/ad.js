@@ -8,12 +8,16 @@ import {
   createAd,
   read,
   adsForSell,
-  adsForRent
+  adsForRent,
+  updateAd,
+  deleteAd,
+  userAds,
+  updateAdStatus,
+  contactAgent
 } from "../controllers/ad.js";
 import { uploadSingle, uploadMultiple } from "../middlewares/upload.js";
 import { requireSignin } from "../middlewares/auth.js";
 import ad from "../models/ad.js";
-
 
 const router = express.Router();
 
@@ -36,8 +40,14 @@ router.post(
 
 router.post("/create-ad", requireSignin, createAd);
 router.get("/ad/:slug", read);
-router.get("/ads-for-sell/:page", adsForSell);  // 1, 2, 3
+router.get("/ads-for-sell/:page", adsForSell); // 1, 2, 3
 router.get("/ads-for-rent/:page", adsForRent);
 
-export default router;
+router.put("/update-ad/:slug", requireSignin, updateAd);
+router.delete("/delete-ad/:slug", requireSignin, deleteAd);
+router.get("/user-ads/:page", requireSignin, userAds);
+router.put("/update-ad-status/:slug", requireSignin, updateAdStatus);
 
+router.post("/contact-agent", requireSignin, contactAgent);
+
+export default router;

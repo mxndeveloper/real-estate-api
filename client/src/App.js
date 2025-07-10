@@ -1,4 +1,4 @@
-import logo from './logo.svg';
+// import logo from './logo.svg';
 import MapTest from './components/MapTest';
 import './App.css';
 

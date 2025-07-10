@@ -3,6 +3,7 @@ import { nanoid } from "nanoid"; // Add this import at the top
 import { uploadToS3, deleteFromS3 } from "../utils/s3-upload.js";
 import sharp from "sharp";
 import AppError from "../utils/app-error.js";
+import { sendContactEmailToAgent } from "../helpers/email.js";
 import { geocodeAddress } from "../helpers/google.js";
 import Ad from "../models/ad.js";
 import User from "../models/user.js";
@@ -595,6 +596,272 @@ export const adsForRent = async (req, res) => {
     console.error("Error in adsForRent:", err); // Better error logging
     res.status(500).json({
       error: "Failed to fetch ads. Please try again.",
+    });
+  }
+};
+
+export const updateAd = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const {
+      photos = [],
+      description,
+      address,
+      propertyType,
+      price,
+      landsize,
+      landsizeType,
+      action,
+      bedrooms,
+      bathrooms,
+      carpark,
+      features,
+      inspectionTime,
+    } = req.body;
+
+    // Validate required fields
+    const validateRequired = (field, name) => {
+      if (!field || (typeof field === "string" && !field.trim())) {
+        res.status(400).json({ error: `${name} is required` });
+        return false;
+      }
+      return true;
+    };
+
+    // Check all required fields
+    if (!validateRequired(photos?.length, "Photos")) return;
+    if (!validateRequired(description, "Description")) return;
+    if (!validateRequired(address, "Address")) return;
+    if (!validateRequired(propertyType, "Property Type")) return;
+    if (!validateRequired(price, "Price")) return;
+    if (!validateRequired(action, "Action")) return;
+
+    // Additional validation for Land type
+    if (propertyType === "Land") {
+      if (!validateRequired(landsize, "Landsize")) return;
+      if (!validateRequired(landsizeType, "Landsize Type")) return;
+    }
+
+    // Find the ad and verify ownership
+    const ad = await Ad.findOne({ slug }).populate("postedBy", "_id");
+    if (!ad) {
+      return res.status(404).json({ error: "Ad not found" });
+    }
+    if (ad.postedBy._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    // Geocode the new address
+    const geocodeResult = await geocodeAddress(address.trim());
+    if (!geocodeResult) {
+      return res.status(400).json({ error: "Invalid address" });
+    }
+
+    // Generate new slug
+    const newSlug = slugify(
+      `${propertyType}-for-${action}-address-${address}-price-${price}-${nanoid(
+        6
+      )}`,
+      { lower: true }
+    );
+
+    // Update the ad
+    const updatedAd = await Ad.findOneAndUpdate(
+      { slug },
+      {
+        photos: photos.map((photo) =>
+          typeof photo === "string" ? photo : photo.url
+        ),
+        description,
+        address,
+        propertytype: propertyType,
+        price,
+        landsize,
+        landsizetype: landsizeType,
+        bedrooms,
+        bathrooms,
+        carpark,
+        features,
+        inspectionTime,
+        action,
+        slug: newSlug,
+        location: geocodeResult.location,
+        googleMap: geocodeResult.googleMap,
+      },
+      { new: true }
+    ).select("-googleMap");
+
+    res.json({
+      success: true,
+      ad: updatedAd,
+    });
+  } catch (err) {
+    console.error("Update Ad Error:", err);
+    if (err.code === 11000) {
+      return res.status(400).json({ error: "Slug already exists" });
+    }
+    res.status(500).json({
+      error: "Failed to update ad",
+      details: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+};
+
+export const deleteAd = async (req, res) => {
+  try {
+    const { slug } = req.params; // Now getting from URL params
+
+    const ad = await Ad.findOne({ slug }).populate("postedBy", "_id");
+
+    if (!ad) {
+      return res.status(404).json({ error: "Ad not found" });
+    }
+    if (ad.postedBy._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    await Ad.deleteOne({ slug });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete error:", err);
+    res.status(500).json({
+      error: "Delete failed",
+      details: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+};
+
+export const userAds = async (req, res) => {
+  try {
+    const page = req.params.page ? req.params.page : 1;
+    const pageSize = 2;
+    const skip = (page - 1) * pageSize;
+    const totalAds = await Ad.countDocuments({ postedBy: req.user._id });
+
+    const ads = await Ad.find({ postedBy: req.user._id })
+      .select("-googleMap")
+      .populate("postedBy", "name username email phone company photo logo")
+      .skip(skip)
+      .limit(pageSize)
+      .sort({ createdAt: -1 });
+
+    res.json({
+      ads,
+      page,
+      totalPages: Math.ceil(totalAds / pageSize),
+    });
+  } catch (error) {
+    console.log(error);
+    res.json({ error: "Failed to fetch. Try again." });
+  }
+};
+
+export const updateAdStatus = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { status } = req.body;
+
+    const ad = await Ad.findOne({ slug });
+
+    if (!ad) {
+      return res.status(404).json({ error: "Ad not found" });
+    }
+
+    // Check if the logged in user is the owner of the ad
+    if (ad.postedBy._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    ad.status = status;
+    await ad.save();
+    // res.json(ad);
+    res.json({ ok: true });
+  } catch (error) {
+    console.log(error);
+    res.json({
+      error: "Failed to update Ad Status. Try again.",
+    });
+  }
+};
+
+export const contactAgent = async (req, res) => {
+  try {
+    const { adId, message } = req.body;
+
+    // Validate required fields
+    if (!adId || !message) {
+      return res.status(400).json({
+        error: "adId and message are required",
+        details: !adId ? "Missing adId" : "Missing message",
+      });
+    }
+
+    // Find ad and verify it exists
+    const ad = await Ad.findById(adId)
+      .populate("postedBy", "name email phone")
+      .select("propertyType action address price slug postedBy");
+
+    if (!ad) {
+      return res.status(404).json({ error: "Ad not found" });
+    }
+    if (!ad.postedBy) {
+      return res.status(404).json({ error: "Ad owner not found" });
+    }
+
+    // Get user with proper error handling
+    const user = await User.findById(req.user._id).select(
+      "name email phone enquiredProperties"
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Initialize enquiredProperties if it doesn't exist
+    if (!user.enquiredProperties) {
+      user.enquiredProperties = [];
+    }
+
+    // Update enquired properties
+    if (!user.enquiredProperties.includes(adId)) {
+      user.enquiredProperties.push(adId);
+      await user.save();
+    }
+
+    // Verify email configuration
+    if (!process.env.EMAIL_FROM || !process.env.AWS_ACCESS_KEY_ID) {
+      console.error("Email configuration missing");
+      return res.status(500).json({
+        error: "Email service not configured",
+        details: "Server configuration error",
+      });
+    }
+
+    // Send email with detailed error handling
+    try {
+      await sendContactEmailToAgent({
+        ad,
+        user,
+        message,
+        clientUrl: process.env.CLIENT_URL || "http://localhost:3000",
+      });
+      return res.json({ success: true });
+    } catch (emailError) {
+      console.error("Email sending failed:", emailError);
+      return res.status(500).json({
+        error: "Email could not be sent",
+        details:
+          process.env.NODE_ENV === "development"
+            ? emailError.message
+            : undefined,
+      });
+    }
+  } catch (error) {
+    console.error("Contact agent error:", error);
+    return res.status(500).json({
+      error: "Failed to contact agent",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };

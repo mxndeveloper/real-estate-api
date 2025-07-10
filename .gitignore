@@ -21,3 +21,6 @@ echo ".env.*" >> frontend/.gitignore
 echo ".next/" >> frontend/.gitignore
 echo "out/" >> frontend/.gitignore
 echo "dist/" >> frontend/.gitignore
+
+.env
+.env.*

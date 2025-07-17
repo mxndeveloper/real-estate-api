@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Check for .env files in any directory
+if git diff --cached --name-only | grep -E '(^|/)(\.env$|\.env\.)'; then
+  echo "❌ ERROR: Attempt to commit .env file detected!"
+  echo "   Remove the .env file from staging with: git reset HEAD <file>"
+  echo "   Or add it to .gitignore if it shouldn't be tracked"
+  exit 1
+fi
+
+# Only run tests if they exist (optional)
+if [ -f "package.json" ] && grep -q '"test"' "package.json"; then
+  npm test || {
+    echo "❌ Tests failed - commit rejected"
+    exit 1
+  }
+fi
